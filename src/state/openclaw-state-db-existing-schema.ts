@@ -1,7 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
 import { registerNodeSqliteDisposeCallback } from "../infra/kysely-sync-cache-state.js";
 import { executeSqliteQueryTakeFirstSync, getNodeSqliteKysely } from "../infra/kysely-sync.js";
-import { assertSqliteIntegrity } from "../infra/sqlite-integrity.js";
 import {
   assertSqliteSchemaContains,
   createSqliteTableContractReader,
@@ -13,6 +12,7 @@ import {
   assertCurrentStateRuntimeSchema,
   assertNoLegacyStateRuntimeRepair,
 } from "./openclaw-state-db-fast-path.js";
+import { assertOpenClawStateIntegrityOncePerFileGeneration } from "./openclaw-state-db-integrity-receipt.js";
 import { classifySqliteTableReadError } from "./openclaw-state-db-schema-helpers.js";
 import {
   assertSupportedStateSchemaVersion,
@@ -68,6 +68,7 @@ export function assertExistingOpenClawStateRuntimeSchema(
   database: DatabaseSync,
   pathname: string,
 ): void {
+  const mayRecordReceipt = !database.isTransaction;
   const schemaCookie = runSqliteDeferredTransactionSync(database, () => {
     assertExistingOpenClawStateRuntimeMetadata(database, pathname);
     const currentCookie = readSqliteSchemaCookie(database);
@@ -78,7 +79,10 @@ export function assertExistingOpenClawStateRuntimeSchema(
     if (cached?.cookie !== currentCookie) {
       cached?.unregister();
       validatedSchemas.delete(database);
-      assertSqliteIntegrity(database, pathname);
+      // A fresh connection (often a fresh worker) reuses this process's proof for the same file.
+      assertOpenClawStateIntegrityOncePerFileGeneration(database, pathname, currentCookie, {
+        mayRecordReceipt,
+      });
       const readTable = createSqliteTableContractReader(database);
       assertCurrentStateRuntimeSchema(database, pathname, readTable);
       assertNoLegacyStateRuntimeRepair(database, pathname);
