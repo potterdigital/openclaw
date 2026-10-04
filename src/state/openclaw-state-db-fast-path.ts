@@ -10,7 +10,6 @@ import {
 import { runSqliteDeferredTransactionSync } from "../infra/sqlite-transaction.js";
 import { hasLegacyCronRunLogs } from "../infra/state-migrations.cron-run-logs.js";
 import { OPENCLAW_STATE_SCHEMA_VERSION } from "./openclaw-state-db-contract.js";
-import { assertOpenClawStateIntegrityOncePerFileGeneration } from "./openclaw-state-db-integrity-receipt.js";
 import { assertOpenClawStateDatabaseForMaintenance } from "./openclaw-state-db-maintenance.js";
 import { OpenClawStateDatabaseSchemaMigrationRequiredError } from "./openclaw-state-db-schema-migration-required.js";
 import {
@@ -80,13 +79,8 @@ export function isOpenClawStateSchemaFastPathEligible(
     if (readStateSchemaMigrationVersion(database) !== OPENCLAW_STATE_SCHEMA_VERSION) {
       return false;
     }
-    // Full proof once per process per physical file and schema; fresh workers reuse it.
-    assertOpenClawStateIntegrityOncePerFileGeneration(
-      database,
-      pathname,
-      readSqliteSchemaCookie(database),
-      { mayRecordReceipt },
-    );
+    // Basic integrity check without receipt recording; receipts are recorded by schema-runtime
+    assertSqliteIntegrity(database, pathname);
     // Both policies see this read transaction; repair must collect fresh facts after it ends.
     const readTable = createSqliteTableContractReader(database);
     assertCurrentStateRuntimeSchema(database, pathname, readTable);
